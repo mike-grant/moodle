@@ -1053,6 +1053,7 @@ function get_array_of_activities($courseid) {
                    $mod[$seq]->completionexpected = $rawmods[$seq]->completionexpected;
                    $mod[$seq]->showdescription  = $rawmods[$seq]->showdescription;
                    $mod[$seq]->availability = $rawmods[$seq]->availability;
+                   $mod[$seq]->deleted = $rawmods[$seq]->deleted;
 
                    $modname = $mod[$seq]->mod;
                    $functionname = $modname."_get_coursemodule_info";
@@ -1572,23 +1573,23 @@ function set_coursemodule_visible($id, $visible) {
     global $DB, $CFG;
     require_once($CFG->libdir.'/gradelib.php');
     require_once($CFG->dirroot.'/calendar/lib.php');
-
+    
     // Trigger developer's attention when using the previously removed argument.
     if (func_num_args() > 2) {
         debugging('Wrong number of arguments passed to set_coursemodule_visible(), $prevstateoverrides
             has been removed.', DEBUG_DEVELOPER);
     }
-
+    
     if (!$cm = $DB->get_record('course_modules', array('id'=>$id))) {
         return false;
     }
-
+    
     // Create events and propagate visibility to associated grade items if the value has changed.
     // Only do this if it's changed to avoid accidently overwriting manual showing/hiding of student grades.
     if ($cm->visible == $visible) {
         return true;
     }
-
+    
     if (!$modulename = $DB->get_field('modules', 'name', array('id'=>$cm->module))) {
         return false;
     }
@@ -1612,6 +1613,9 @@ function set_coursemodule_visible($id, $visible) {
     $cminfo->visibleold = $visible;
     $DB->update_record('course_modules', $cminfo);
 
+    // We need to account for the potential of an overloaded visible setting from the recycle bin
+    $visible = $visible - 2;
+    
     // Hide the associated grade items so the teacher doesn't also have to go to the gradebook and hide them there.
     // Note that this must be done after updating the row in course_modules, in case
     // the modules grade_item_update function needs to access $cm->visible.
@@ -1632,16 +1636,20 @@ function set_coursemodule_visible($id, $visible) {
     return true;
 }
 
-/**
- * This function will handles the whole deletion process of a module. This includes calling
- * the modules delete_instance function, deleting files, events, grades, conditional data,
- * the data in the course_module and course_sections table and adding a module deletion
- * event to the DB.
- *
- * @param int $cmid the course module id
- * @since Moodle 2.5
- */
-function course_delete_module($cmid) {
+function get_soft_deleted_modules($courseid) {
+    global $DB;
+    
+    if (empty($courseid)) {
+        return false; // avoid warnings
+    }
+
+    return $DB->get_records_sql("SELECT cm.*, m.name as modname
+                                   FROM {modules} m, {course_modules} cm
+                                  WHERE cm.course = ? AND cm.module = m.id AND m.visible = 1 AND cm.deleted > 0",
+                                array($courseid)); // no disabled mods
+}
+
+function course_soft_delete_module($cmid) {
     global $CFG, $DB;
 
     require_once($CFG->libdir.'/gradelib.php');
@@ -1653,7 +1661,83 @@ function course_delete_module($cmid) {
     if (!$cm = $DB->get_record('course_modules', array('id' => $cmid))) {
         return true;
     }
+    set_coursemodule_visible($cm->id, $cm->visible+2);
+    // First lets mark the course module as "deleted"
+    $cminfo = new stdClass();
+    $cminfo->id = $cmid;
+    $cminfo->deleted = time();
+    $DB->update_record('course_modules', $cminfo);
+    
+    // Get the module context.
+    $modcontext = context_module::instance($cm->id);
+    $modulename = $DB->get_field('modules', 'name', array('id' => $cm->module), MUST_EXIST);
+    // Trigger event for course module delete action.
+    $event = \core\event\course_module_soft_deleted::create(array(
+        'courseid' => $cm->course,
+        'context'  => $modcontext,
+        'objectid' => $cm->id,
+        'other'    => array(
+            'modulename' => $modulename,
+            'instanceid'   => $cm->instance,
+        )
+    ));
+    $event->add_record_snapshot('course_modules', $cm);
+    $event->trigger();
+    rebuild_course_cache($cm->course, true);
+}
 
+function course_restore_soft_delete_module($cmid) {
+    global $DB;
+    // Get the course module.
+    if (!$cm = $DB->get_record('course_modules', array('id' => $cmid))) {
+        return true;
+    }
+    // We need to check that we're restoring to a section that exists,
+    // If not, then we need to move the module to the last section before restoring
+    $sections = $DB->get_records('course_sections', array('course' => $cm->course), 'section', 'id,section,sequence');
+    if(!isset($sections[$cm->section])) {
+        $lastsection = end($sections);
+        $sections[$lastsection->id]->newsequence = trim($sections[$lastsection->id]->sequence.','.$cm->id, ',');
+        // Update the course sections with the new section and sequence of the section
+        $DB->update_record('course_sections', array('id' => $sections[$lastsection->id]->id, 'sequence' => $sections[$lastsection->id]->newsequence));
+        // Update the course module with it's new section
+        $DB->update_record('course_modules', array('id' => $cm->id, 'section' => $sections[$lastsection->id]->id));
+    }
+    // Update the visibility of the module we use -2 to get back to the original visibility state
+    set_coursemodule_visible($cm->id, $cm->visible-2);
+    // First lets mark the course module as "deleted"
+    $cminfo = new stdClass();
+    $cminfo->id = $cmid;
+    $cminfo->deleted = 0;
+    $DB->update_record('course_modules', $cminfo);
+    rebuild_course_cache($cm->course, true);
+}
+
+/**
+ * This function will handles the whole deletion process of a module. This includes calling
+ * the modules delete_instance function, deleting files, events, grades, conditional data,
+ * the data in the course_module and course_sections table and adding a module deletion
+ * event to the DB.
+ *
+ * @param int $cmid the course module id
+ * @since Moodle 2.5
+ */
+function course_delete_module($cmid, $force=false) {
+    global $CFG, $DB;
+
+    require_once($CFG->libdir.'/gradelib.php');
+    require_once($CFG->dirroot.'/blog/lib.php');
+    require_once($CFG->dirroot.'/calendar/lib.php');
+    require_once($CFG->dirroot . '/tag/lib.php');
+
+    // Get the course module.
+    if (!$cm = $DB->get_record('course_modules', array('id' => $cmid))) {
+        return true;
+    }
+    if($cm->deleted==0 && !$force) {
+        return course_soft_delete_module($cmid);
+    }
+    
     // Get the module context.
     $modcontext = context_module::instance($cm->id);
 
@@ -2796,6 +2880,7 @@ function average_number_of_courses_modules() {
         WHERE c.id = cm.course
             AND c.id <> :siteid
             AND cm.visible = 1
+            AND cm.deleted = 0
             AND c.visible = 1) total';
     $params = array('siteid' => $SITE->id);
     $moduletotal = $DB->count_records_sql($sql, $params);

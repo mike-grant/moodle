@@ -3833,6 +3833,12 @@ class settings_navigation extends navigation_node {
             $url = new moodle_url('/backup/restorefile.php', array('contextid'=>$coursecontext->id));
             $coursenode->add(get_string('restore'), $url, self::TYPE_SETTING, null, 'restore', new pix_icon('i/restore', ''));
         }
+        
+        // Restore to this course
+        if (has_capability('moodle/restore:restorecourse', $coursecontext)) {
+            $url = new moodle_url('/course/recycle.php', array('id'=>$course->id));
+            $coursenode->add('Recycle', $url, self::TYPE_SETTING, null, 'recycle', new pix_icon('i/restore', ''));
+        }
 
         // Import data from other courses
         if (has_capability('moodle/restore:restoretargetimport', $coursecontext)) {

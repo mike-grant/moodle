@@ -292,5 +292,14 @@ $tasks = array(
         'day' => '*',
         'dayofweek' => '*',
         'month' => '*'
+    ),
+    array(
+        'classname' => 'core\task\recycle_bin_cleanup_task',
+        'blocking' => 0,
+        'minute' => '0',
+        'hour' => '*/6',
+        'day' => '*',
+        'dayofweek' => '*',
+        'month' => '*'
     )
 );

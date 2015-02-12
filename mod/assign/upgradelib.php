@@ -356,7 +356,7 @@ class assign_upgrade_manager {
         // Delete the old assignment (use object delete).
         $cm = get_coursemodule_from_id('', $oldcoursemodule->id, $oldcoursemodule->course);
         if ($cm) {
-            course_delete_module($cm->id);
+            course_delete_module($cm->id, true);
         }
         rebuild_course_cache($oldcoursemodule->course);
         return true;

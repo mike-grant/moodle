@@ -250,4 +250,14 @@ class eventobservers {
         $cmid = $event->contextinstanceid;
         subscription_manager::delete_cm_subscriptions($cmid);
     }
+    
+    /**
+     * Observer that monitors course module deleted event and delete user subscriptions.
+     *
+     * @param \core\event\course_module_deleted $event the event object.
+     */
+    public static function course_module_soft_deleted(\core\event\course_module_soft_deleted $event) {
+        $cmid = $event->contextinstanceid;
+        subscription_manager::delete_cm_subscriptions($cmid);
+    }
 }

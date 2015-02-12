@@ -38,6 +38,7 @@ $copy          = optional_param('copy', 0, PARAM_INT);
 $moveto        = optional_param('moveto', 0, PARAM_INT);
 $movetosection = optional_param('movetosection', 0, PARAM_INT);
 $delete        = optional_param('delete', 0, PARAM_INT);
+$restore       = optional_param('restore', 0, PARAM_INT);
 $course        = optional_param('course', 0, PARAM_INT);
 $groupmode     = optional_param('groupmode', -1, PARAM_INT);
 $cancelcopy    = optional_param('cancelcopy', 0, PARAM_BOOL);
@@ -93,7 +94,11 @@ if (!empty($add)) {
 } else if (!empty($delete)) {
     $cm     = get_coursemodule_from_id('', $delete, 0, true, MUST_EXIST);
     $course = $DB->get_record('course', array('id' => $cm->course), '*', MUST_EXIST);
-
+    
+    $deleted = $cm->deleted;
+    
+    // We need to bring the module back temporarily to delete it.
+    course_restore_soft_delete_module($cm->id);
     require_login($course, false, $cm);
     $modcontext = context_module::instance($cm->id);
     require_capability('moodle/course:manageactivities', $modcontext);
@@ -123,13 +128,24 @@ if (!empty($add)) {
 
         exit;
     }
-
     // Delete the module.
-    course_delete_module($cm->id);
+    $return = new moodle_url('/course/recycle.php', array('id'=>$cm->course));
+    course_delete_module($cm->id, true);
+    redirect($return);
+    
+} else if (!empty($restore)) {
+    $cm     = get_coursemodule_from_id('', $restore, 0, true, MUST_EXIST);
+    $course = $DB->get_record('course', array('id' => $cm->course), '*', MUST_EXIST);
+    // We need to bring the module back temporarily to delete it.
+    course_restore_soft_delete_module($cm->id);
+    require_login($course, false, $cm);
+    $modcontext = context_module::instance($cm->id);
+    require_capability('moodle/course:manageactivities', $modcontext);
+
+    $return = course_get_url($course, $cm->sectionnum, array('sr' => $sectionreturn));
 
     redirect($return);
 }
-
 
 if ((!empty($movetosection) or !empty($moveto)) and confirm_sesskey()) {
     $cm     = get_coursemodule_from_id('', $USER->activitycopy, 0, true, MUST_EXIST);

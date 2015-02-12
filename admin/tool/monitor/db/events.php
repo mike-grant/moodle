@@ -40,5 +40,9 @@ $observers = array(
     array(
         'eventname'   => '\core\event\course_module_deleted',
         'callback'    => '\tool_monitor\eventobservers::course_module_deleted',
+    ),
+    array(
+        'eventname'   => '\core\event\course_module_soft_deleted',
+        'callback'    => '\tool_monitor\eventobservers::course_module_soft_deleted',
     )
 );

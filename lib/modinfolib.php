@@ -900,6 +900,8 @@ class cm_info implements IteratorAggregate {
      * @var string
      */
     private $availability;
+    
+    private $deleted;
 
     /**
      * Controls whether the description of the activity displays on the course main page (in
@@ -1097,6 +1099,7 @@ class cm_info implements IteratorAggregate {
         'uservisible' => 'get_user_visible',
         'visible' => false,
         'visibleold' => false,
+        'deleted'=>false,
     );
 
     /**
@@ -1520,7 +1523,7 @@ class cm_info implements IteratorAggregate {
         static $cmfields = array('id', 'course', 'module', 'instance', 'section', 'idnumber', 'added',
             'score', 'indent', 'visible', 'visibleold', 'groupmode', 'groupingid',
             'completion', 'completiongradeitemnumber', 'completionview', 'completionexpected',
-            'showdescription', 'availability');
+            'showdescription', 'availability', 'deleted');
         foreach ($cmfields as $key) {
             $cmrecord->$key = $this->$key;
         }
@@ -1727,6 +1730,7 @@ class cm_info implements IteratorAggregate {
         $this->completionexpected = isset($mod->completionexpected)
                 ? $mod->completionexpected : 0;
         $this->availability = isset($mod->availability) ? $mod->availability : null;
+        $this->deleted = isset($mod->deleted) ? $mod->deleted : 0;
         $this->conditionscompletion = isset($mod->conditionscompletion)
                 ? $mod->conditionscompletion : array();
         $this->conditionsgrade = isset($mod->conditionsgrade)
@@ -1892,6 +1896,11 @@ class cm_info implements IteratorAggregate {
 
              $this->uservisible = false;
             // Ensure activity is completely hidden from the user.
+            $this->availableinfo = '';
+        }
+        
+        if($this->deleted > 0) {
+            $this->uservisible = false;
             $this->availableinfo = '';
         }
     }
