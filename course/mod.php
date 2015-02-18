@@ -130,7 +130,7 @@ if (!empty($add)) {
     }
     // Delete the module.
     $return = new moodle_url('/course/recycle.php', array('id'=>$cm->course));
-    course_delete_module($cm->id, true);
+    course_delete_module($cm->id);
     redirect($return);
     
 } else if (!empty($restore)) {

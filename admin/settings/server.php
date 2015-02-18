@@ -233,3 +233,10 @@ if (empty($CFG->disableupdatenotifications)) {
 }
 
 } // end of speedup
+
+$temp = new admin_settingpage('recyclebin', new lang_string('recyclebin', 'core_admin'));
+
+$temp->add(new admin_setting_configcheckbox('enablerecyclebin', new lang_string('enablerecyclebin', 'core_admin'),
+                                                new lang_string('enablerecyclebin_desc', 'core_admin'), 1));
+
+$ADMIN->add('server', $temp);

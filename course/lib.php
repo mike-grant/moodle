@@ -1649,14 +1649,17 @@ function get_soft_deleted_modules($courseid) {
                                 array($courseid)); // no disabled mods
 }
 
-function course_soft_delete_module($cmid) {
+function course_soft_delete_module($cmid) {   
     global $CFG, $DB;
-
+    
     require_once($CFG->libdir.'/gradelib.php');
     require_once($CFG->dirroot.'/blog/lib.php');
     require_once($CFG->dirroot.'/calendar/lib.php');
     require_once($CFG->dirroot . '/tag/lib.php');
-
+    
+    if(!$CFG->enablerecyclebin) {
+        return course_delete_module($cmid, true);
+    }
     // Get the course module.
     if (!$cm = $DB->get_record('course_modules', array('id' => $cmid))) {
         return true;
@@ -1734,7 +1737,7 @@ function course_delete_module($cmid, $force=false) {
     if (!$cm = $DB->get_record('course_modules', array('id' => $cmid))) {
         return true;
     }
-    if($cm->deleted==0 && !$force) {
+    if($cm->deleted==0 && !$force && $CFG->enablerecyclebin) {
         return course_soft_delete_module($cmid);
     }
     
