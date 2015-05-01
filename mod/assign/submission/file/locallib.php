@@ -72,6 +72,7 @@ class assign_submission_file extends assign_submission_plugin {
 
         $defaultmaxfilesubmissions = $this->get_config('maxfilesubmissions');
         $defaultmaxsubmissionsizebytes = $this->get_config('maxsubmissionsizebytes');
+        $defaultrestricttypes = $this->get_config('restricttypes');
 
         $settings = array();
         $options = array();
@@ -106,6 +107,29 @@ class assign_submission_file extends assign_submission_plugin {
         $mform->disabledIf('assignsubmission_file_maxsizebytes',
                            'assignsubmission_file_enabled',
                            'notchecked');
+        
+        $name = get_string('restricttypes', 'assignsubmission_file');
+        $mform->addElement('selectyesno', 'assignsubmission_file_restricttypes', $name);
+        $mform->addHelpButton('assignsubmission_file_restricttypes', 'restricttypes', 'assignsubmission_file');
+        $mform->setDefault('assignsubmission_file_restricttypes', $defaultrestricttypes);
+        $mform->disabledIf('assignsubmission_file_restricttypes', 'assignsubmission_file_enabled', 'notchecked');
+
+        $groupels = array();
+        foreach ($this->get_all_typesets() as $k => $v) {
+            $elem = $mform->createElement('checkbox', $k, '', $v);
+            $groupels[] = $elem;
+        }
+        $name = get_string('acceptedfiletypes', 'assignsubmission_file');
+        $mform->addGroup($groupels, 'assignsubmission_file_filetypes', $name, '<br/>');
+        $mform->disabledIf('assignsubmission_file_filetypes', 'assignsubmission_file_restricttypes', 'eq', '0');
+        $mform->disabledIf('assignsubmission_file_filetypes', 'assignsubmission_file_enabled', 'notchecked');
+
+        $name = get_string('filetypesother', 'assignsubmission_file');
+        $mform->addElement('text', 'assignsubmission_file_filetypesother', $name, 'size="30"');
+        $mform->setType('assignsubmission_file_filetypesother', PARAM_RAW_TRIMMED);
+        $mform->addHelpButton('assignsubmission_file_filetypesother', 'filetypesother', 'assignsubmission_file');
+        $mform->disabledIf('assignsubmission_file_filetypesother', 'assignsubmission_file_restricttypes', 'eq', '0');
+        $mform->disabledIf('assignsubmission_file_filetypesother', 'assignsubmission_file_enabled', 'notchecked');
     }
 
     /**
@@ -117,6 +141,18 @@ class assign_submission_file extends assign_submission_plugin {
     public function save_settings(stdClass $data) {
         $this->set_config('maxfilesubmissions', $data->assignsubmission_file_maxfiles);
         $this->set_config('maxsubmissionsizebytes', $data->assignsubmission_file_maxsizebytes);
+        $this->set_config('restricttypes', $data->assignsubmission_file_restricttypes);
+
+        $filetypeslist = array();
+        if (isset($data->assignsubmission_file_filetypes) &&
+                is_array($data->assignsubmission_file_filetypes)) {
+            $filetypeslist = array_keys($data->assignsubmission_file_filetypes, 1);
+        }
+        if ($data->assignsubmission_file_filetypesother !== '') {
+            $filetypeslist[] = $this->normalise_filetypelist($data->assignsubmission_file_filetypesother);
+        }
+        $this->set_config('filetypeslist', implode(';', $filetypeslist));
+
         return true;
     }
 
@@ -129,7 +165,7 @@ class assign_submission_file extends assign_submission_plugin {
         $fileoptions = array('subdirs'=>1,
                                 'maxbytes'=>$this->get_config('maxsubmissionsizebytes'),
                                 'maxfiles'=>$this->get_config('maxfilesubmissions'),
-                                'accepted_types'=>'*',
+                                'accepted_types'=>$this->get_accepted_types(),
                                 'return_types'=>FILE_INTERNAL);
         if ($fileoptions['maxbytes'] == 0) {
             // Use module default.
@@ -163,7 +199,22 @@ class assign_submission_file extends assign_submission_plugin {
                                                   ASSIGNSUBMISSION_FILE_FILEAREA,
                                                   $submissionid);
         $mform->addElement('filemanager', 'files_filemanager', $this->get_name(), null, $fileoptions);
-
+        
+        if ($this->get_config('restricttypes')) {
+            $text = html_writer::tag('p', get_string('filesofthesetypes', 'assignsubmission_file'));
+            $text .= html_writer::start_tag('ul');
+            $typesets = $this->get_configured_typesets();
+            foreach ($typesets['sets'] as $description) {
+                $text .= html_writer::tag('li', s($description));
+            }
+            if ($typesets['other']) {
+                $text .= html_writer::tag('li', get_string('filetypesotherlist', 'assignsubmission_file',
+                        str_replace(',', ', ', $typesets['other'])));
+            }
+            $text .= html_writer::end_tag('ul');
+            $mform->addElement('static', '', '', $text);
+        }
+        
         return true;
     }
 
@@ -532,5 +583,104 @@ class assign_submission_file extends assign_submission_plugin {
                 'The id of a draft area containing files for this submission.'
             )
         );
+    }
+    
+
+    /**
+     * Set default values that demand a little extra effort.
+     *
+     * @param array $defaultvalues
+     */
+    public function data_preprocessing(&$defaultvalues) {
+        $typesconfig = $this->get_configured_typesets();
+
+        $defaultvalues['assignsubmission_file_filetypes'] = array();
+        foreach (array_keys($typesconfig['sets']) as $extensions) {
+            $defaultvalues['assignsubmission_file_filetypes'][$extensions] = 1;
+        }
+        $defaultvalues['assignsubmission_file_filetypesother'] = str_replace(',', ', ', $typesconfig['other']);
+    }
+
+
+    /**
+     * Load and parse the type sets configuration.
+     *
+     * @return array
+     */
+    private function get_all_typesets() {
+        $typesets = array();
+        $config = get_config('assignsubmission_file', 'filetypes');
+        if ($config) {
+            foreach (explode("\n", $config) as $line) {
+                list ($extensions, $description) = explode(';', $line, 2);
+                $typesets[$extensions] = $description;
+            }
+        } else {
+            $helper = new assignsubmission_file\filetypes_helper();
+            foreach ($helper->default_types() as $type) {
+                $typesets[$type->extensions] = $type->description;
+            }
+        }
+        return $typesets;
+    }
+
+    /**
+     * Get the type sets configured for this assignment.
+     *
+     * @return array('sets' => array(extensions => description), 'other' => extensions)
+     */
+    private function get_configured_typesets() {
+        $typeslist = (string)$this->get_config('filetypeslist');
+        $typesets = $this->get_all_typesets();
+
+        $sets = array();
+        $other = '';
+
+        if ($typeslist !== '') {
+            $other = array();
+            foreach (explode(';', $typeslist) as $type) {
+                if (isset($typesets[$type])) {
+                    $sets[$type] = $typesets[$type];
+                } else {
+                    $other = array_merge($other, explode(',', $type));
+                }
+            }
+            $other = implode(',', array_unique($other));
+        }
+
+        return compact('sets', 'other');
+    }
+
+
+    /**
+     * Sanitise user input of file types into a consistent internal format.
+     *
+     * @param string $typestring a list of file types.
+     * @return string a normalised type string.
+     */
+    private function normalise_filetypelist($typestring) {
+        $types = preg_split('/[,;\s]+/', $typestring);
+        natsort($types);
+        $types = array_map(function ($t) { return ltrim($t, '*.'); }, $types);
+        return implode(',', $types);
+    }
+
+    /**
+     * Return the accepted types list for the file manager component.
+     *
+     * @return array
+     */
+    private function get_accepted_types() {
+        $accepted_types = '*';
+        $restricttypes = $this->get_config('restricttypes');
+        $types = (string)$this->get_config('filetypeslist');
+
+        if ($restricttypes && $types !== '') {
+            $types = explode(',', strtr($types, ';', ','));
+            $types = array_map(function ($a) { return ".$a"; }, $types);
+            $accepted_types = $types;
+        }
+
+        return $accepted_types;
     }
 }
